@@ -1,0 +1,499 @@
+____________________________________________________
+__PREPROCESSING DATA FOR 2019 UK ELECTION__
+Course: Spatial Analytics Exam | Aarhus University
+Auhtors: Mie Arnau Martinez & Sofie Ditmer
+____________________________________________________
+
+__SCRIPT DESCRIPTION:__ <br>
+This script prepares the data for spatial analysis of the UK general election in 2019. The preprocessing includes several data wrangling steps that prepare the election, demographic, and spatial data for further analysis. The preprocessed data is saved as a shapefile to the data directory. Hence, this script contains the data manipulations needed to get the required dataframe for spatial analysis of spatial features of the general election in 2019 in the United Kingdom.
+
+__The 2019 election results were retrieved from:__ <br>
+https://commonslibrary.parliament.uk/research-briefings/cbp-8647/ 
+
+__The shapefile of the constituencies was retrieved from:__ <br>
+https://data.gov.uk/dataset/4fd0633a-1c26-4619-b905-15c89ff7c6a0/westminster-parliamentary-constituencies-december-2016-full-clipped-boundaries-in-great-britain 
+
+__The age and population data was retrieved from:__ <br>
+https://www.ons.gov.uk/peoplepopulationandcommunity/populationandmigration/populationestimates/datasets/parliamentaryconstituencymidyearpopulationestimates 
+
+__The data on ethnicity was retrieved from:__ <br>
+https://commonslibrary.parliament.uk/constituency-statistics-ethnicity/ 
+
+__Pub data was derieved through:__ <br>
+https://www.kaggle.com/rtatman/every-pub-in-england?select=open_pubs.csv 
+
+__Postcode data was acquired from:__ <br>
+https://www.getthedata.com/open-postcode-geo
+
+__Income data was derieved through:__ <br>
+https://www.gov.uk/government/statistics/income-and-tax-by-parliamentary-constituency-confidence-intervals 
+
+__And the urban and rural classification data was retrieved from:__ <br>
+https://www.ons.gov.uk/methodology/geography/geographicalproducts/ruralurbanclassifications/2001ruralurbanclassification/ruralurbanlocalauthoritylaclassificationengland 
+
+NB! Some of the files have been slightly modified to get to a computer readable csv format.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+<br>
+__Loading libraries:__ <br>
+```{r loading libraries, include=FALSE}
+# Install and load pacman for package management
+#install.packages("pacman")
+library(pacman)
+
+# Install/load required libraries
+p_load(tidyverse, 
+       sf,
+       tmap,
+       rgdal,
+       spatialEco)
+```
+<br>
+__Reading the data:__ <br>
+In this chunk we are simply loading the 2019 UK election data results, the spatial data of parliamnetary constituencies, rural/urban classificaiton data, as well as demographic data. <br>
+
+```{r loading data, include=TRUE}
+# Load 2019 UK election data (predictor)
+election_2019_uk <- read_csv("../data/2019election_results.csv")
+
+# Load shapefile of English parliamentary constituencies data
+constituencies <- st_read("../data/Westminster_Parliamentary_Constituencies_(December_2016)_Boundaries.shp")
+
+# Population density and age data
+age_and_population <- read_csv("../data/age_data.csv")
+
+# Ethnicity data
+ethnicity <- read_csv("../data/ethnicity_data.csv")
+
+# Income data
+income <- read_csv("../data/income_data.csv")
+
+# Urban and rural data
+pop_rural_urban <- read_csv("../data/population_and_rural_urban_data.csv")
+
+# Pub data
+pubs <- read_csv("../data/open_pubs.csv")
+
+# Postcode geodata
+postcodes <- read.csv("../data/open_postcode_geo.csv", stringsAsFactors=FALSE)
+```
+<br>
+__Data wrangling for the election data:__ <br>
+- Filter election results to only keep data from English constituencies <br>
+- Calculate percentage votes for the Conservative Party and the Labour Party <br>
+- Subset data relevant for the spatial analysis <br>
+- Check distribution of votes for the Conservative Party and the Labour Party <br>
+
+```{r data wrangling, include=TRUE}
+# Filter election data by England 
+election_2019_eng <- election_2019_uk %>% 
+  filter(Country == "England")
+
+# Calculate percentage votes for conservative and labour
+election_2019_eng <- election_2019_eng %>% 
+  mutate(perc_votes_conservative = ConservativeVotes/`Total votes`*100,
+         perc_votes_labour = LabourVotes/`Total votes`*100) %>% 
+  mutate(Electorate = as.numeric(Electorate))
+
+# Keep only relevant columns
+election_subset <- election_2019_eng %>% 
+  dplyr::select(Constituency, perc_votes_conservative, perc_votes_labour, Electorate, County)
+
+# Check distribution of votes for conservatives
+hist(election_subset$perc_votes_conservative,
+     main = "Distribution of Conservative Votes in the UK 2019 Election",
+     xlab = "Vote Share (%)")
+
+# Check distribution of votes for labour
+hist(election_subset$perc_votes_labour,
+     main = "Distribution of Labour Votes in the UK 2019 Election",
+     xlab = "Vote Share (%)")
+```
+
+<br>
+From the two histograms, we can see that the votes for the conservatives are a little skewed towards higher percentages whereas the votes for labour are more skew towards lower percentages. However, both distributions have a large range of percentages and from this we can gather that there is a great variation in voting patterns across constituencies.<br>
+So, now we have election data that is ready to be merged. <br>
+<br>
+
+__Data wrangling for the age and population data:__ <br>
+The data is structured with a column for each age (0-90+) and a row for each constituency. <br>
+- Calculate average age across all age columns <br>
+- Rename population column <br>
+- Subset data relevant for the spatial analysis <br>
+- Check distribution of population and average age across constituencies <br>
+
+```{r preprocessing age and population data, include=TRUE}
+# Set counter to zero
+counter = 0
+
+# Create column for average age
+age_and_population$average_age <- 0
+
+# For each constituency in the data
+for (constituency in 1:nrow(age_and_population)){
+  
+  # For age column in the range of ages
+  for (i in (0:90)){
+    
+    # Age is the current iteration
+    age = i
+    
+    # Get population with that age in the current constituency
+    pop = age_and_population[[constituency, (i + 4)]] # i + 4 since column number will increase
+    
+    # Product of age and number of population with that age
+    total = age*pop
+    
+    # Add product to counter 
+    counter = counter + total # this will give the sum of the population * age for all ages
+  }
+  
+  # Calculate average age by dividing the sum with total population
+  average = counter/age_and_population[[constituency, 3]] # column 3 = All ages
+  
+  # Add average age for constituency to the new column
+  age_and_population[constituency, 95] <- average
+  
+  # Set counter to zero before starting over with new constituency
+  counter = 0
+}
+
+# Take relevant columns
+age_and_population_subset <- age_and_population %>% 
+  # Change name of population column
+  mutate(population = `All Ages`) %>% 
+  # Change names of constituencies to uppercase to match election data
+  mutate(PCON11NM = toupper(PCON11NM)) %>% 
+  # Keep only relevant columns
+  dplyr::select(PCON11NM, population, average_age)
+
+# Check distribution of population
+hist(age_and_population_subset$population,
+     main = "Constituency Population Distribution",
+     xlab = "Population count")
+
+# Check population range
+range(age_and_population_subset$population)
+
+# Check distribution of average age
+hist(age_and_population_subset$average_age,
+     main = "Age Distribution",
+     xlab = "Age")
+
+# Check age range
+range(age_and_population_subset$average_age)
+```
+
+<br>
+Both variables appear to be approximately normally distributed. Populations vary from around 60000 to around 190000. Similarly, mean age range from around 31 to around 50 years. <br>
+From this, we have acquired population and average age ready for merging. 
+<br>
+__Data wrangling for the income data:__ <br>
+The income data is already fit for analysis <br>
+- Rename mean income column <br>
+- Subset data relevant for the spatial analysis <br>
+- Check distribution of average income <br>
+
+```{r preprocessing income data, include=TRUE}
+# Subset income data
+income_subset <- income %>% 
+  # Remove NA's from empty rows
+  filter(!is.na(X1)) %>% 
+  # Change column name for mean income
+  mutate(mean_income = `Central Estimate (mean)`) %>% 
+  # Change names of constituencies to uppercase to match election data
+  mutate(X2 = toupper(X2)) %>% 
+  # Select relevant columns for subsetting
+  dplyr::select(X2, mean_income)
+
+# Check distribution of average income
+hist(income_subset$mean_income,
+     main = "Average Income Distribution",
+     xlab = "Average Income (British Pound)")
+
+# Check income range
+range(income_subset$mean_income)
+```
+
+<br>
+The data for average income is very skewed with most values around 20000 and few values over 60000. However, the range is quite large (22400 - 119000 British Pounds). <br>
+
+
+__Data wrangling for ethnicity data:__ <br>
+As a proxy for ethnic diversity (or more specifically lack of diversity), we extract values from column of how many percent white make of the population in each constituency. <br>
+- Get percentage white population <br>
+- Subset data relevant for the spatial analysis <br>
+- Check distribution of the percentage of white population across constituencies <br>
+
+```{r preprocessing ethnicity data, include=TRUE}
+# Ethnicity data
+ethnicity_subset <- ethnicity %>% 
+  # Rename column for percentage of white population
+  mutate(percentage_white_pop = `PopWhiteConst%`) %>%
+  # Change names of constituencies to uppercase to match election data
+  mutate(ConstituencyName = toupper(ConstituencyName)) %>% 
+  # select relevant columns for subsetting
+  dplyr::select(percentage_white_pop, ConstituencyName)
+
+# Check distribution of ethnic diversity
+hist(ethnicity_subset$percentage_white_pop,
+     main = "Distribution of White Population Share",
+     xlab = "Share of White Population")
+```
+<br>
+From the histogram of how many percent whites make out of the total population in each constituency, it is quite clear that for most constituencies white people make up the large majority of the population (~90-100%). <br>
+However, some constituencies like East Ham have more diverse populations where white people only comprise around 1/4 of the total population.
+<br>
+__Data wrangling for urban and rural data:__ <br>
+- Change classification to binary class <br>
+- Count number of rural and urban constituencies <br>
+- Select and subset relevant variables <br>
+
+```{r preprocessing urban and rural data, include=TRUE}
+# Using string replace to redefine urban and rural as binary class
+pop_rural_urban$Classification <- pop_rural_urban$Classification %>% 
+  str_replace(pattern = ".*_urban$", replacement = "urban") %>% 
+  str_replace(pattern = ".*ural.*", replacement = "rural")
+
+# Count number of rural and urban constituencies
+pop_rural_urban %>% 
+  group_by(Classification) %>% 
+  summarise(count = n())
+# Rural constituencies = 179
+# Urban constituencies = 354
+
+# Subset data
+rural_urban_subset <- pop_rural_urban %>%
+  # Rename column for constituencies and change names to upper
+  mutate(Constituency = toupper(Constituency_2)) %>%
+  # Select relevant columns for subsetting
+  dplyr::select(Constituency, Classification)
+```
+So, from this we see that there are approximately twice as many urban constituencies compared to rural constituencies.
+<br>
+__Merge data:__ <br>
+Before preparing the pub data, we merge all data we have prepared so far and add it to the spatial polygon data.
+
+```{r merging data, include=TRUE}
+# Merge election data and age and population data by constituency
+all_data <- merge(election_subset, age_and_population_subset, by.x = "Constituency", by.y = "PCON11NM")
+
+# Merge with income data
+all_data <- merge(all_data, income_subset, by.x = "Constituency", by.y = "X2")
+
+# Merge with ethnicity data
+all_data <- merge(all_data, ethnicity_subset, by.x = "Constituency", by.y = "ConstituencyName")
+
+# Merge with rural urban data
+all_data <- merge(all_data, rural_urban_subset, by = "Constituency")
+
+# Make constituency names upper case to match 
+constituencies$pcon16nm <- toupper(constituencies$pcon16nm)
+
+# Merge attribute data with spatial constituency data
+constituency_data <- merge(constituencies, 
+                           all_data, 
+                           by.x = "pcon16nm", 
+                           by.y = "Constituency")
+```
+
+__Pubs per inhabitant__ <br>
+We are missing longitude and latitude for 72 pubs. To restore these, we first try to use easting and northing coordinates. However, they seem to be corrupted and therefore, we instead opt to merge the data with longitude and latitude data for postcodes in the UK. While inspecting the data, we noticed that postcode was misplaced twice in address column. 
+<br>
+- Create two datasets - one for rows without longitude and one for rows with longitude data. <br>
+- Try to recover the missing longitude and latitude from easting and northing. <br>
+- Add the misplaced postcodes to the postcode column. <br>
+- Merge pub data with missing coordinates and postcode data. <br>
+- Rowbind pub data with recovered coordinates to the rest of the pub data. <br>
+- Transform pub dataframe to sf object and assign crs. <br>
+
+```{r pubs data, include=TRUE}
+#--------Creating two datasets----------
+# Convert to numeric
+pubs$latitude <- as.numeric(pubs$latitude) 
+pubs$longitude <- as.numeric(pubs$longitude) 
+
+# Check missing latitude
+plyr::count(is.na(pubs$latitude))
+# Check missing longitude
+plyr::count(is.na(pubs$longitude))
+
+# Save pub data without longitude NA's
+pubs_no_NAs <- pubs %>% 
+  filter(!is.na(longitude))
+
+# Save pub data with longitude NA's
+pubs_NAs <- pubs %>% 
+  filter(is.na(pubs$longitude))
+
+#---------Trying to get missing long and lat from easting and northing----------
+
+# Function to find UTM from longitude
+long2UTM <- function(long) {
+    (floor((long + 180)/6) %% 60) + 1
+}
+# Find min and max UTM from min and max longitude
+minLong <- min(pubs_no_NAs$longitude); minUTM <- long2UTM(minLong) # UTM: 29
+maxLong <- max(pubs_no_NAs$longitude); maxUTM <- long2UTM(maxLong) # UTM: 31
+
+# print min and max UTM
+printf <- function(...) cat(sprintf(...))
+printf("Min UTM: %d, Max UTM: %d", minUTM, maxUTM)
+
+# transform easting and northing to longitude and latitude from utm
+longlat_df <- pubs_NAs %>%
+  st_as_sf(coords = c("easting", "northing"), crs = CRS("+proj=utm +zone=30")) %>%
+  st_transform(crs = 27700) %>% 
+  st_coordinates() %>%
+  as.data.frame()
+
+# save coordinates as latitude and longitude
+pubs_NAs$latitude <- longlat_df$Y 
+pubs_NAs$longitude <- longlat_df$X
+
+# Transform to sf object
+pubs_NAs_filtered_sf <- st_as_sf(pubs_NAs, 
+                                coords = c("longitude", "latitude"))
+
+# Setting CRS
+pubs_NAs_filtered_sf <- st_set_crs(pubs_NAs_filtered_sf, 27700)
+# plotting geometry
+plot(pubs_NAs_filtered_sf$geometry)
+
+#DIDN'T WORK - MUST HAVE CORRUPTED EASTING AND NORTHING
+
+#-----------Merging pub data with postcode data---------
+
+# adding misplaced postcode in postcode column
+for (row in 1:nrow(pubs_NAs)){
+  if (pubs_NAs[row,"address"] == "YO17 7LX"){
+    pubs_NAs[row, "postcode"] = "YO17 7LX"
+  }
+  if (pubs_NAs[row,"address"] == "EN11 8TN"){
+    pubs_NAs[row, "postcode"] = "EN11 8TN"
+  }
+}
+
+# drop latitude and longitude column
+pubs_NAs <- pubs_NAs[,-c(7:8)]
+
+# subsetting the postcode data to keep only relevant columns
+pc <- cbind(postcodes[,c(1,8,9)])
+# renaming columns to match pubs data
+colnames(pc)<- c("postcode","latitude","longitude")
+
+# merging postcode data with the NA pubs data
+pubs_pc <- merge(x=pubs_NAs, y=pc, by="postcode")
+
+# checking which pubs are removed
+for (name in pubs_NAs$name){
+  if (name %in% pubs_pc$name){
+    # do nothing
+  }
+  else {
+    print(paste(name, "is not in the data!"))
+  }
+}
+
+# merging the pub data to get full data set
+pubs_merged <-  rbind(pubs_no_NAs, pubs_pc)
+
+# Transform to sf object
+pubs_merged_sf <- st_as_sf(pubs_merged, coords = c("longitude", "latitude"))
+
+# Plot pub geometry
+plot(pubs_merged_sf$geometry)
+
+# Transform CRS 
+pubs_merged_sf <- st_set_crs(pubs_merged_sf, 4326)
+pubs_merged_sf <- st_transform(pubs_merged_sf, crs = 27700)
+```
+<br>
+This gives us 51564 pubs out of 51566. The missing two pubs are Worthing United Football Club and Dearne Valley Farm as their postcodes are not the the postcode geo data. 
+<br>
+Now that we have the coordinates for the pubs we need to calculate pubs per inhabitant. For this calculation, we first have to calculate how many pubs are in each constituency.
+<br>
+We start by merging the pub data with the constituencies data to remove data from Wales and Scotland.
+
+```{r merging pub and constituency data, include=TRUE}
+# transform crs for constituency data
+constituency_data <- st_transform(constituency_data, crs = 27700)
+
+# There are missing voting values for Chorley so we remove them before calculating neighbors
+constituency_data <- constituency_data %>% 
+  filter(pcon16nm != "CHORLEY")
+
+# Check if the CRS of the constituencies and the pubs match
+st_crs(pubs_merged_sf)==st_crs(constituency_data)
+
+# Plot with tmap
+tm_shape(constituency_data)  +
+  tm_polygons(col = "#a6bddb") + # colors are found on colorbrewer2.org
+  tm_shape(pubs_merged_sf$geometry) +
+  tm_layout(main.title = "Pubs per constituency", main.title.size = 0.8) +
+  tm_dots(col = "#1c9099", # added color from colorbrewer2.org
+             size = 0.01)
+
+# Filter out Scotland and Wales using st_intersection()
+pubs_england <- st_intersection(pubs_merged_sf, constituency_data)
+
+# Plot geometry for intersection to see if it only includes England
+tm_shape(constituency_data)  +
+  tm_polygons(col = "#a6bddb") + # colors are found on colorbrewer2.org
+  tm_shape(pubs_england$geometry) +
+  tm_layout(main.title = "Pubs per constituency in England", main.title.size = 0.8) +
+  tm_dots(col = "#1c9099", # added color from colorbrewer2.org
+             size = 0.01)
+```
+
+Finally, we can count pubs in each constituency. For this we use a function from the spatialEco package. This function intersects point and polygon feature classes and adds polygon attributes to points.
+
+```{r pubs per constituency, include=TRUE}
+# Using point in poly function to get pubs for each constituency
+pts.poly <- point.in.poly(pubs_england, constituency_data)
+
+# Inspecting the data
+head(pts.poly@data)
+
+# Saving count of pubs in each constituency
+pubs_counts <- pts.poly@data %>% 
+  group_by(pcon16nm.x) %>% 
+  summarize(pub_count=n())
+
+# Merge constituency and pub data
+constituency_data <- merge(constituency_data, 
+                           pubs_counts, 
+                           by.x = "pcon16nm", 
+                           by.y = "pcon16nm.x")
+
+# Calculate pubs per inhabitant from pub count and population
+constituency_data <- constituency_data %>% 
+  mutate(pubs_per_inhabitant = pub_count/population)
+```
+
+__Calculate population density:__ <br>
+Lastly, we calculate population density by first calculating the area for each polygon and then divide population by area.
+
+```{r population density, include=TRUE}
+# Make new area column
+constituency_data$area <- st_area(constituency_data)
+
+# Population density
+constituency_data <- constituency_data %>% 
+  mutate(pop_density = population/area)
+```
+
+__Save data:__ <br>
+Finally, we make last adjustments and save the data as a shapefile.
+```{r save data, include=TRUE, warning=FALSE}
+# rename constituency column and drop unnecessary columns 
+constituency_data <- constituency_data %>% 
+  mutate(Constituency = pcon16nm) %>% 
+  subset(select = -c(1, 3:5,8:9)) 
+
+
+# Save to data folder
+st_write(constituency_data, "../data/space_data.shp", append = F)
+```
