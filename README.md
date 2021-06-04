@@ -21,17 +21,24 @@ The repository follows the overall structure presented below. If one wishes to r
 To reproduce the results of this project, the user is advised to clone the repository. This is done by executing the following from the command line: 
 
 ```
-$ git clone https://github.com/sofieditmer/SpatialAnalyticsExamProject.git
+$ git clone https://github.com/sofieditmer/SpatialAnalyticsExamProject.git SpatialAnalysis_UK_Election
 ```
 
 Once the repository has been cloned, the user is able to run the scripts provided in the ```src```folder. The ```Preprocessing```script has to be executed to produce the preprocessed data that are required to run the other two scripts. 
+
+Since the CSV-file containing the postcodes of the constituencies is too large to store on GitHub the user will have to download these manually and place them in the ```data``` folder. The postcode data can be downloaded from this [link](https://www.getthedata.com/downloads/open_postcode_geo.csv.zip).
+Once the postcode data has been downloaded as a zip-file, the user will need to move it to the data folder of the repository and unzip it by executing the following from the command line:
+
+```
+cd SpatialAnalysis_UK_Election/data
+
+unzip open_postcode_geo.csv.zip
+```
 
 ### License <br>
 This project is licensed under the MIT License - see the [LICENSE](https://github.com/sofieditmer/SpatialAnalyticsExamProject/blob/main/LICENSE) file for details.
 
 ### Contact Details <br>
 If you have any questions feel free to contact us on: <br> 
-[201805308@post.au.dk](201805308@post.au.dk) <br>
-OR <br>
-[201805308@post.au.dk](201806701@post.au.dk)
+[201805308@post.au.dk](201805308@post.au.dk) OR [201805308@post.au.dk](201806701@post.au.dk)
 
