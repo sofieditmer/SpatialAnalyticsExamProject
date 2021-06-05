@@ -40,5 +40,5 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 
 ### Contact Details <br>
 If you have any questions feel free to contact us on: <br> 
-[201805308@post.au.dk](201805308@post.au.dk) OR [201805308@post.au.dk](201806701@post.au.dk)
+[201805308@post.au.dk](201805308@post.au.dk) OR [201806701@post.au.dk](201806701@post.au.dk)
 
