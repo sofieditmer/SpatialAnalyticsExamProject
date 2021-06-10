@@ -70,7 +70,7 @@ ethnicity <- read_csv("../data/ethnicity_data.csv")
 income <- read_csv("../data/income_data.csv")
 
 # Urban and rural data
-pop_rural_urban <- read_csv("../data/Population_and_rural_urban.csv")
+pop_rural_urban <- read_csv("../data/population_and_rural_urban_data.csv")
 
 # Pub data
 pubs <- read_csv("../data/open_pubs.csv")
