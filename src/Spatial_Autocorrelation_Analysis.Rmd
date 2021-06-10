@@ -1,0 +1,408 @@
+---
+title: "Spatial Autocorrelation Analysis"
+author: "Sofie Ditmer and Mie Arnau Martinez"
+output: html_document
+---
+<br>
+__SCRIPT CONTENT__ <br>
+This script contains a spatial analysis of the 2019 UK election data associated with England. The spatial analysis includes the creation of basic visualizations that are used as stepping stones for creating cartograms, performing spatial autocorrelation tests, and addressing the Modifiable Areal Unit Problem (MAUP) by implementing different aggregation schemes.  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+__LOAD REQUIRED PACKAGES__
+```{r packages, include=TRUE}
+# Install and load pacman for package management
+#install.packages("pacman")
+library(pacman)
+
+# Install/load necessary packages with p_load
+p_load(tidyverse,
+       sf,
+       tmap,
+       rgdal,
+       spdep,
+       maptools,
+       cartogram)
+```
+
+__LOAD PREPROCESSED DATA__ <br>
+First we need to load the preprocessed data from the ```Preprocessing.Rmd``` script. This is a shapefile that contains all the necessary data for the spatial analysis. 
+
+```{r load data, include=TRUE}
+# Load shapefile
+data <- st_read("../data/space_data.shp")
+
+# Change column names to be more interpretable
+data <- data %>% 
+  rename(
+    perc_votes_conservative = prc_vts_c,
+    perc_votes_labour = prc_vts_l,
+    electorates = Electrt,
+    county = County,
+    population_count = popultn,
+    average_age = averg_g,
+    average_income = men_ncm,
+    perc_white_population = prcnt__,
+    urban_rural_class = Clssfct,
+    n_pubs = pub_cnt, 
+    pubs_per_inhabitant = pbs_pr_,
+    constituency_area = area,
+    population_density = pp_dnst,
+    constituency = Cnsttnc,
+    )
+
+# Inspect the data to make sure everything looks decent
+head(data)
+```
+
+__BASIC VISUALIZATIONS__ <br>
+To start off the spatial analysis of the preprocessed data, we start by producing various plots to get an overview of the data. <br>
+
+__The following plots are produced:__ <br>
+    1. Constitency by population <br>
+    2. Conservative vote share for each constituency <br>
+    3. Labour vote share for each constituency <br>
+    4. Constituencies classified as either rural or urban <br>
+
+__PLOTTING CONSTITUENCY *POPULATION*__
+```{r plotting constituency population}
+tm_shape(data) + 
+  tm_polygons(col = "population_count", title = "Population Count") +
+  tm_layout(main.title = "Constituencies by population", 
+            main.title.size = 0.9)
+```
+
+__PLOTTING *CONSERVATIVE* VOTE SHARE PER CONSTITUENCY__
+```{r plotting Conservative vote share, include=TRUE}
+conservative_map <- tm_shape(data) + 
+  tm_polygons(col = "perc_votes_conservative", title = "Conservative Vote Share (%)", palette = "Blues") +
+  tm_layout(main.title = "Conservative Vote Share per Constituency", 
+            main.title.size = 0.7)
+```
+
+__PLOTTING *LABOUR VOTE* SHARE PER CONSTITUENCY__
+```{r plotting Labour vote share, include=TRUE}
+labour_map <- tm_shape(data) + 
+  tm_polygons(col = "perc_votes_labour", title = "Labour Vote Share (%)", palette = "Reds") +
+  tm_layout(main.title = "Labour Vote Share per Constituency", 
+            main.title.size = 0.7)
+```
+
+__PLOTTING *URBAN/RURAL* CONSTITUENCY CLASSIFICATION__
+```{r plotting rural/urban classification, include=TRUE}
+urban_rural_map <- tm_shape(data) + 
+  tm_polygons("urban_rural_class", title = "Urban/Rural Classification") +
+  tm_layout(main.title = "Urban/Rural Classification of Constituencies", 
+            main.title.size = 0.7)
+```
+
+```{r plotting all maps, include=TRUE}
+# Plotting all maps at once
+tmap_arrange(conservative_map, labour_map, urban_rural_map, nrow = 1)
+```
+
+__CONCLUSION__ <br>
+From these basic visualizations of the English parliamentary constituencies and the 2019 election data we can gain a sense of the distribution of Conservative and Labour votes in relation to urban and rural areas. There is a tendency for urban areas to favor the Labour party while more rural areas have favored the Conservative party. However, there is a clear problem with some constituencies carrying more visual weight than others. To solve this problem we create cartograms. <br>
+
+__CARTOGRAMS__ <br>
+When mapping parliamentary constituencies it becomes clear that the larger constituencies with a low population density carry more visual significance compared to smaller constituencies with a high population density. For instance, the city of London is divided into several small constituencies because of its high population density, and these constituencies naturally carry less visual weight compared to large, rural areas.
+In order to correct for this visual imbalance, we create cartograms that modify the size of each constituency to be proportional to the number of electorates, the Conservative vote share, and the Labour vote share. This means that constituencies with a low population density are contracted in size while high density urban constituencies are expanded, while still retaining roughly the same location of the constituencies relative to one another. These cartograms allow for a visual comparison of regions of interest in relation to voting patterns. <br>
+It is important to note that the cartograms produced below are not geographically correct, rather they are simulated. In other words, the cartograms are distorted spatial representations of the English parliamentary constituencies relative to a specified variable.<br>
+
+__CARTOGRAM 1: SCALING CONSTITUENCIY AREA TO *TOTAL NUMBER OF ELECTORATES* IN 2019__ <br>
+We start by making a cartogram that scales the size of the constituencies to to the total number of eligible voters in 2019.
+```{r cartograms, include=TRUE}
+# Plot the number of electorates against the size of the constituencies in a scatterplot
+plot(data$electorates, st_area(data, byid = TRUE),
+     main = "Constituency Area Scaled to Electorate",
+     xlab = "Electorate (in thousands)",
+     ylab = "Constiuency Area (m2)")
+# Here we get an idea of the number of eligible voters against the size of the constituencies. The y-axis displays the area of the constituency, while the x-axis displays the total number of electorates. There is a lot of variation when it comes to the size and number of electorates in the constituencies, and this is what we hope to reduce with cartograms.
+
+# Using the cartogram_cont() function we create the cartogram that scales the area of the constituencies to the total number of eligible voters in 2019. 
+cartogram_electorates_2019 <- cartogram_cont(data, "electorates")
+# Now the sizes of the constituencies correspond to the number of eligible voters. 
+
+# Once again we plot the number of electorates against the size of the constituencies in a scatteplot, but this time we use the cartogram to see whether the variation has been reduced.
+plot(cartogram_electorates_2019$electorates, st_area(cartogram_electorates_2019, byid = TRUE), 
+     main = "Constituency Area Scaled to Electorate",
+     xlab = "Electorate (in thousands)",
+     ylab = "Constiuency Area (m2)")
+# We can see that the relationship between the size of the constituencies and the number of electorates has become much more linear because we have scaled the area to the number of voters. Hence, adjusting the size of the constituencies to correspond to the number of votes makes the relationship much more linear. 
+# The cartogram_cont() makes simulations which is why there is still some variation left.
+
+# Plot the cartogram
+plot(cartogram_electorates_2019$geometry, 
+     col = "grey",
+     main = "Cartogram: Constituency Area Scaled to Number of Electorates in 2019")
+```
+
+__CARTOGRAM 2: SCALING CONSTITUENCIY AREA TO PERCENTAGE OF *CONSERVATIVE* VOTES IN 2019__ <br>
+Now we focus on the percentage of Conservative votes in the 2019 election. We create a cartogram that scales the size of the constituencies to the percentage of Conservative votes.
+```{r cartogram Conservative, include=TRUE}
+# First we inspect the relationship between the size of the constituencies and the percentage of Conservative votes
+plot(data$perc_votes_conservative, st_area(data, byid = TRUE),
+     main = "Constituency Area Scaled to Conservative Vote Share",
+     xlab = "Conservative Vote Share (%)",
+     ylab = "Constiuency Area (m2)")
+
+# Using the cartogram_cont() function we create the cartogram that scales the area of the constituencies to the percentage of Conservative votes in 2019. 
+cartogram_conservative_2019 <- cartogram_cont(data, "perc_votes_conservative")
+
+# Once again we plot the percentage of Conservative votes aginst the size of the constituencies in a scatteplot, but this time we use the cartogram to see whether the variation has been reduced.
+plot(cartogram_conservative_2019$perc_votes_conservative, st_area(cartogram_conservative_2019, byid = TRUE),
+     main = "Constituency Area Scaled to Conservative Vote Share",
+     xlab = "Conservative Vote Share (%)",
+     ylab = "Constiuency Area (m2)")
+# We can see that the relationship between the size of the constituencies and the percentage of Conservative votes has become much more linear because we have scaled the area to the Conservative vote share. Hence, the larger the vote share of a constituency, the more expanded the constituency will become. 
+# The cartogram_cont() makes simulations which is why there is still some variation left.
+
+# Plot the cartogram
+plot(cartogram_conservative_2019$geometry, 
+     col = "blue",
+     main = "Constituency Area Scaled to Percentage of Conservative Votes in 2019")
+```
+
+__CARTOGRAM 3: SCALING CONSTITUENCIY AREA TO THE PERCENTAGE OF *LABOUR* VOTES IN 2019__ <br>
+Now we focus on the percentage of Labour votes in the 2019 election. We create a cartogram that scales the size of the constituencies to the percentage of labour votes.
+```{r cartogram Labour, include=TRUE}
+# First we inspect the relationship between the size of the constituencies and the percentage of Labour votes
+plot(data$perc_votes_labour, st_area(data, byid = TRUE),
+     main = "Constituency Area Scaled to Labour Vote Share",
+     xlab = "Labour Vote Share (%)",
+     ylab = "Constiuency Area (m2)")
+
+# Using the cartogram_cont() function we create the cartogram that scales the area of the constituencies to the percentage of Labour votes in 2019. 
+cartogram_labour_2019 <- cartogram_cont(data, "perc_votes_labour")
+
+# Once again we plot the percentage of Labour votes aginst the size of the constituencies in a scatteplot, but this time we use the cartogram to see whether the variation has been reduced.
+plot(cartogram_labour_2019$perc_votes_labour, st_area(cartogram_labour_2019, byid = TRUE),
+     main = "Constituency Area Scaled to Labour Vote Share",
+     xlab = "Labour Vote Share (%)",
+     ylab = "Constiuency Area (m2)")
+# We can see that the relationship between the size of the constituencies and the percentage of Labour votes has become much more linear because we have scaled the area to the Labour vote share.
+# The cartogram_cont() makes simulations which is why there is still some variation left.)
+
+# Plot the cartogram
+plot(cartogram_labour_2019$geometry, 
+     col = "red",
+     main = "Constituency Area Scaled to Percentage of Labour Votes in 2019")
+```
+
+__CONCLUSION__ <br>
+By modifying the area of the constituencies to be proportional to the total number of eligible voters, the Conservative vote share, and the Labour vote share, it becomes possible to compare regions of interest on an informed basis. To gain a deeper insight into the spatial dependency present between the parliamentary constituencies, we continue to perform tests of spatial autocorrelation with different neighborhood definitions. <br>
+
+
+__SPATIAL AUTOCORRELATION TEST__ <br>
+When we assess the cartograms for Conservative vote share and Labour vote share in 2019, it is clear that there is a tendency for urban constituencies, in particular constituencies near London, Liverpool, and Manchester, to favor the Labour party while more rural constituencies tend to favor the Conservative party. Hence, it seems that constituencies close to the cities tends to have similar voting preferences while constituencies further away from the city also tend to vote similarly. <br>
+We want to test for how much spatial correlation is actually present, and we do this with a spatial autocorrelation test. In other words, we want to test whether it is more likely that neighboring constituencies have similar voting preferences compared to randomly selected constituencies. <br>
+To calcualte the degree of spatial autocorrelation, the Moran’s I statistic is calculated. Moran's I represents the correlation coefficient for the relationship between a variable and its surrounding data points. Hence, by computing Moran’s I, we are able to quantify the degree to which neighboring constituencies tend to display similar voting preferences as was evident in the visual inspection of the spatial data. <br>
+We compute Moran's I with a Monte Carlo simulation test, in which the attribute values are randomly assigned to the polygons, and for each of the number of specified iterations, the Moran’s I value is computed. This returns a sampling distribution of the computed Moran’s I values that can then be compared to a random distribution, and the divergence between these two sampling distributions indicates the degree to which the observed Moran’s I is likely to be due to spatial randomness. Hence, the greater the divergence between the observed sampling distribution and the random distribution, the smaller the likelihood of deriving the Moran’s I from a random distribution which in turn indicates that spatial clustering is indeed present. <br>
+
+__Defining neighboring constituencies__
+Before we can test for spatial autocorrelation, we need to define the neighboring constituencies. We have chosen to utilize different kinds of neighborhood definitions in order to see how constitent the results are. Hence, by using different ways of defining neighboring constituencies, it is possible to assess the robustness of the results obtained from the Moran’s I test for spatial autocorrelation. <br>
+First we define the neighboring constituencies according to adjacency, i.e. constituencies with shared borders are considered to be neighbors. This is also known as the contiguity-based neighborhood definition. Hence, only constituencies that share a common border, i.e., contiguous polygons, are considered neighbors. When defining neighbors according to adjacency we use the ```poly2nb``` function which generates a Queen-case neighborhood object in which neighboring polygons are defined as those that share a boundary point. <br>
+Then we define the neighboring constituencies according to the distance between their centroids. Hence, only constituencies within a specified distance are considered neighbors according to the distance-based neighborhood definition. We are using distance bands of 20 and 50 km. When defining the neighbors according to distance we use the ```dnearneigh```function which defines the neighboring polygons based on an upper and lower distance bound specifying the distance between the centers of the polygons. In this regard it is important to remark that since we are dealing with irregular polygons the center of a constituency might not be where we would think it would be, which is something we need to consider when assessing the distance between constituencies. The centroids of the polygons are computed relying on the ```st_centroid``` function and the coordinates of the centroids are extracted using the ```st_coordinates```function. <br>
+In addition to the contiguity- and distance-based neighborhood definitions, the k-nearest neighbors approach is likewise utilized. While K-nearest neighbors is also considered a distance-based neighbors approach it does not define neighbors according to a specified proximity, rather, it returns the k closest neighbors where k is a specified integer indicating the number of nearest neighbors to identify. This means that with the K-nearest neighbors, neighboring polygons can potentially be far apart and still considered neighbors given that a proximity threshold is not specified. When defining the neighboring constituencies according to the K-nearest neighbors definition, we use the ```knearneigh``` as well as the ```knn2nb``` functions to create an object that retains the 3 nearest neighbors for each constituency. <br>
+
+__Defining neighboring constituencies according to *adjacency*__
+```{r, neigborhood definition 1, include=TRUE}
+# First, we simplify the constituency boundaries to speed up processing. The st_simplify() function changes the data to "geometry" and therefore we use the st_cast() function to transform it back to "polygons"
+constituencies_sm <- st_cast(st_simplify(data, dTolerance = 250), to = "MULTIPOLYGON")
+
+# Plot the simplified geometry to make sure it looks decent
+plot(constituencies_sm$geometry)
+
+# Now we define the neighboring constituencies using the poly2nb() function which defines the neigbors according to adjacency (shared borders)
+adjacency_neighbors <- poly2nb(constituencies_sm$geometry)
+adjacency_neighbors
+# Now we have a list of all neighboring constituencies. We can see that there is 1 region with no neighbors (this is an island). This might have some implications for the weighted matrix we make later and consequently Moran's I.
+
+# Now we extract the center points of each constituency
+constituencies_centers <- st_coordinates(st_centroid(constituencies_sm$geometry))
+
+# Now we plot the neighboring constituencies. 
+plot(constituencies_sm$geometry); plot(adjacency_neighbors, constituencies_centers, col = "red",add = TRUE)
+# Here we can see the neighborhoods. Only polygons that have shared borders have neigbors, because we are using the adjacency definiton of neighborhood.
+```
+
+Now that we have defined the neigboring constituencies according to the adjacency criterion, we can test for spatial autocorrelation by computing the Moran's I statistic. With Moran's I we are checking whether neigboring constituencies are more correlated in terms of voting preferences compared to a random distribution of constituencies. <br>
+
+__MORAN'S I: THE CONSERVATIVE PARTY__ <br>
+Below we are computing Moran's I for the percentage of Conservative votes in 2019 to see exactly how much spatial autocorrelation is present. 
+```{r Morans I Conservative 1, include=TRUE}
+# Since we cannot trust the p-value using the moran.test() function, we run a Monte Carlo simulation that provides a more trustworthy p-value. When performing a Monte Carlo simulation, we are randomly distributing the values for 999 simulations which is why the p-value becomes more reliable. 
+moran.mc(cartogram_conservative_2019$perc_votes_conservative,
+         nb2listw(adjacency_neighbors, zero.policy=TRUE), # nb2listw creates a weighted list of neighbors.
+         zero.policy=TRUE, # zero.policy ensures that constituencies with missing neigbors are replaced with 0
+         nsim = 999)
+```
+
+__MORAN'S I: THE LABOUR PARTY__ <br>
+Below we are computing Moran's I for the percentage of Labour votes in 2019 to see exactly how much spatial autocorrelation is present. 
+```{r Morans I Labour 1, include=TRUE}
+# Compute Moran's I for Labour votes using Monte Carlo simulation
+moran.mc(cartogram_labour_2019$perc_votes_labour,
+         nb2listw(adjacency_neighbors, zero.policy=TRUE),
+         zero.policy=TRUE, 
+         nsim = 999)
+```
+
+__CONCLUSION__ <br>
+For both the Conservative and Labour votes, there are clear signs of spatial autocorrelation, which means that neigboring constituencies seem to display similar voting preferences, and hence it is more likely that two neighboring constituencies voted for the same party compared to two randomly selected constituencies. This is indicated by the fact that Moran's I is positive and the p-value is signicant, which means that we can reject the null hypothesis stating that the results are derived from a random distribution. This means that there is a very low probability (< 0.05) that the results obtained are random, which means that spatial autocorrelation is present. <br>
+Now let's see if these results are consistent when using other neighborhood definitions. Below we use different distances (20 km. and 50 km.) to define neighboring constituencies as well as the K-nearest neighbors (k = 3) definition. <br>
+
+__Defining neighboring constituencies according to *distance*__
+```{r neighborhood definition 2, include=TRUE}
+# First we extract the center points of each constituency
+constituencies_centers <- st_centroid(constituencies_sm$geometry, of_largest_polygon = TRUE)
+
+# ---- Distance: 20 km ---- #
+# Now we create a list of neighbors based on 20 km. distance. Hence, neigbors within 20 km. of each other are to be considered neighbors
+neighbors_20km <- dnearneigh(constituencies_centers, 0, 20000)
+
+# Plot neighbors with 20 km. distance definition
+plot(constituencies_sm$geometry); plot(neighbors_20km, constituencies_centers, col = "red", add = TRUE)
+title(main = "Neighboring Constituencies within 20 km. distance") # plot title
+
+# ---- Distance: 50 km ---- #
+# Now we create a list of neighbors based on 50 km. distance. Hence, neigbors within 50 km. of each other are to be considered neighbors
+neighbors_50km <- dnearneigh(constituencies_centers, 0, 50000)
+
+# Plot neighbors with 50 km. distance definition
+plot(constituencies_sm$geometry); plot(neighbors_50km, constituencies_centers, col = "red", add = TRUE)
+title(main = "Neighboring Constituencies within 50 km. distance") # plot title
+
+# ---- K-nearest neighbors ---- #
+# Define neighboring constituencies according to K-nearest neighbors:
+coords <- coordinates(as(constituencies_sm, "Spatial")) # convert to spatial object  and extract coordinates
+nearest_3_nb <- knearneigh(coords, k=3) # define the 3 nearest neighbors based on the coordiantes 
+
+# Plot 3 nearest neighbors
+plot(constituencies_sm$geometry); plot(knn2nb(nearest_3_nb), coords, col = "red", add = TRUE)
+title(main="K nearest neighbors, k = 3")
+```
+
+Now that we have defined the neigboring constituencies according to K-nearest neighbors definition, we can test for spatial autocorrelation by computing the Moran's I, and see whether we still find significant spatial autocorrelation. <br>
+
+__MORAN'S: THE CONSERVATIVE PARTY__
+```{r Morans I Conservative 2, include=TRUE}
+# Run Moran's I test using Monte Carlo simultion Conservative vote share in 2019 with nearest neighbor definition of 50 km. distance
+moran.mc(cartogram_conservative_2019$perc_votes_conservative,
+         nb2listw(neighbors_50km, zero.policy=TRUE),
+         zero.policy=TRUE, 
+         nsim = 999)
+
+# Run Moran's I test using Monte Carlo simultion Conservative vote share in 2019 with nearest neighbor definition of 20 km. distance
+moran.mc(cartogram_conservative_2019$perc_votes_conservative,
+         nb2listw(neighbors_20km, zero.policy=TRUE),
+         zero.policy=TRUE, 
+         nsim = 999)
+
+# Run a Moran I test with Monte Carlo simultion on number of votes for conservatives in percentage in 2019 based on 3 neighbours
+moran.mc(cartogram_conservative_2019$perc_votes_conservative,
+         nb2listw(knn2nb(nearest_3_nb), zero.policy=TRUE),
+         zero.policy=TRUE, 
+         nsim = 999)
+```
+
+__MORAN'S I: THE LABOUR PARTY__
+```{r Morans I Labour 2, include=TRUE}
+# Run Moran's I test using Monte Carlo simultion Labour vote share in 2019 with nearest neighbor definition of 50 km. distance
+moran.mc(cartogram_labour_2019$perc_votes_labour,
+         nb2listw(neighbors_50km, zero.policy=TRUE),
+         zero.policy=TRUE, 
+         nsim = 999)
+
+# Run Moran's I test using Monte Carlo simultion Labour vote share in 2019 with nearest neighbor definition of 20 km. distance
+moran.mc(cartogram_labour_2019$perc_votes_labour,
+         nb2listw(neighbors_20km, zero.policy=TRUE),
+         zero.policy=TRUE, 
+         nsim = 999)
+
+# Run a Moran I test with Monte Carlo simultion on number of votes for Labour in percentage in 2019 based on 3 neighbours
+moran.mc(cartogram_labour_2019$perc_votes_labour,
+         nb2listw(knn2nb(nearest_3_nb), zero.policy=TRUE),
+         zero.policy=TRUE, 
+         nsim = 999)
+```
+
+__CONCLUSION__ <br>
+Even when defining neighbors according to the K-nearest neighbors definition, we find that spatial autocorrelation is still present, which is indicated by the positive Moran's I and the significant p-values. Taken together this means that it seems that neigboring constituencies tend to display similar voting preferences regardless of neighborhood definition. <br>
+
+
+__ADDRESSING THE MAUP PROBLEM__ <br>
+The way in which spatial boundaries are drawn will inevitably affect the results of the statistical analyses we conduct. The results obtained using one type of aggregation scheme are most likely not going to be identical to the results obtained using another type of aggregation scheme. The problem associated with analyzing aggregated data is referred to as the “Modifiable Areal Unit Problem” (MAUP), which might constitute one of the most critical problems within spatial analysis, given that arbitrary spatial boundaries can largely affect the outcomes of a spatial analysis <br>
+Given that we are using aggregated data, it was deemed necessary to address this exact problem. To see whether different kinds of aggregation schemes have an effect on the results we obtain, we are going to combine constituencies into counties and see whether this affects the results of the spatial autocorrelation test. One might suspect that using a different kind of aggregation scheme would potentially reveal a different degree of spatial autocorrelation, hence, this is what we are going to investigate in the following. <br>
+
+
+__AGGREGATING CONSTITUENCIES INTO COUNTIES__ <br>
+Below we are aggregating the constituencies and their associated data. This means that constituencies belonging to the same county will be aggregated.
+
+```{r aggregating constituencies, include=TRUE}
+# To not aggregate unneccessary data, we select the relevant columns
+data_filtered <- data %>% 
+  select(perc_votes_conservative, perc_votes_labour, county)
+
+# Aggregating constituencies into counties using the aggregate() function. This means that we combine the constituencies based on the county they belong to, and we take the average of each of their column values. 
+aggregated_constituencies_counties <- aggregate(data_filtered,
+                                       by = list(data_filtered$county),
+                                       FUN = mean,
+                                       do_union = TRUE,
+                                       simplify = TRUE,
+                                       join = st_intersects,
+                                       dissolve = TRUE
+)
+
+# Simplify the boundaries to speed up the processing
+aggregated_constituencies_counties_sm <- st_simplify(aggregated_constituencies_counties, preserveTopology = TRUE, dTolerance = .07)
+
+# Plot the simplified geometry of the aggregated data to make sure it looks decent
+plot(aggregated_constituencies_counties_sm$geometry)
+```
+
+Now that we have aggregated the constituencies, we can redefine the neighborhoods. Since spatial correlation was found for all the neighborhood definitions applied, we choose to only use the the adjacency neighborhood definition for the aggregated constituencies. <br>
+
+__Defining Neighboring Constituencies for Aggregated Data *(counties)*__
+```{r neighborhood definition 3, include=TRUE}
+# Transform the CRS of the data to 277700 which is the CRS of England
+aggregated_constituencies_counties_sm <- st_transform(aggregated_constituencies_counties, crs = 27700)
+
+# Now we define the neighboring constituencies using the poly2nb() function which defines the neigbors according to adjacency (shared borders).
+neighbors_aggregated_constituencies <- poly2nb(aggregated_constituencies_counties_sm$geometry)
+# Now we have a list of all neighboring constituencies. 
+
+# Now we extract the center points of each constituency
+aggregated_constituencies_centers <- st_coordinates(st_centroid(aggregated_constituencies_counties_sm$geometry))
+
+# Now we plot the neighboring constituencies. 
+plot(constituencies_sm$geometry, col = "red"); plot(neighbors_aggregated_constituencies, aggregated_constituencies_centers, col = "grey", add = TRUE)
+# Here we can see the neighborhoods. Only polygons that have shared borders have neigbors, because we are using the adjacency definiton of neighborhood.
+```
+
+Now that we have defined the new neighborhoods for the aggregated constituencies, we can compute Moran's I to test for spatial autocorrelation with this new aggregation scheme. <br>
+
+__MORAN'S I: THE CONSERVATIVE PARTY__
+```{r Morans I Conservative 3, include=TRUE}
+# Compute Moran's I for the Conservative party vote share
+moran.mc(as.numeric(aggregated_constituencies_counties_sm$perc_votes_conservative),
+         nb2listw(neighbors_aggregated_constituencies, zero.policy=TRUE),
+         zero.policy=TRUE, 
+         nsim = 999)
+```
+
+__MORAN'S I: THE LABOUR PARTY__
+```{r Morans I Labour 3, include=TRUE}
+# Compute Moran's I for the Labour party vote share
+moran.mc(aggregated_constituencies_counties_sm$perc_votes_labour,
+         nb2listw(neighbors_aggregated_constituencies, zero.policy=TRUE),
+         zero.policy=TRUE, 
+         nsim = 999)
+```
+
+__CONCLUSION__ <br>
+It is now clear that even with a different aggregation scheme, spatial autocorrelation is still present. Hence, even when the constituency borders are changed, it still seems that neighboring constituencies tend to display similar voting behavior. <br>
+<br>
+Now we have concluded the spatial analysis of the 2019 election data. We continue with a spatial regression analysis which can be found in the ```Spatial_Regression_Analysis.Rmd``` script provided in the src/ folder of the repository. 
