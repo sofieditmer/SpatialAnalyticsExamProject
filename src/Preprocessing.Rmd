@@ -1,11 +1,10 @@
-____________________________________________________
-__PREPROCESSING DATA FOR 2019 UK ELECTION__
-Course: Spatial Analytics Exam | Aarhus University
-Auhtors: Mie Arnau Martinez & Sofie Ditmer
-____________________________________________________
-
+---
+title: "PREPROCESSING DATA FOR 2019 UK ELECTION"
+course: "Spatial Analytics Exam | Aarhus University"
+authors: "Mie Arnau Martinez & Sofie Ditmer"
+---
 __SCRIPT DESCRIPTION:__ <br>
-This script prepares the data for spatial analysis of the UK general election in 2019. The preprocessing includes several data wrangling steps that prepare the election, demographic, and spatial data for further analysis. The preprocessed data is saved as a shapefile to the data directory. Hence, this script contains the data manipulations needed to get the required dataframe for spatial analysis of spatial features of the general election in 2019 in the United Kingdom.
+This script is used to prepare the data for spatial analysis of the UK general election in 2019. The preprocessing includes several data wrangling steps that prepares the election, demographic, and spatial data for further analysis. The preprocessed data is saved as a shapefile to the data directory. Hence, this script contains the data manipulations needed to get the required dataframe for spatial analysis of spatial features of the general election in 2019 in the United Kingdom.
 
 __The 2019 election results were retrieved from:__ <br>
 https://commonslibrary.parliament.uk/research-briefings/cbp-8647/ 
@@ -38,7 +37,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 <br>
 __Loading libraries:__ <br>
-```{r loading libraries, include=FALSE}
+```{r loading libraries, message = FALSE, warning=FALSE}
 # Install and load pacman for package management
 #install.packages("pacman")
 library(pacman)
@@ -52,9 +51,9 @@ p_load(tidyverse,
 ```
 <br>
 __Reading the data:__ <br>
-In this chunk we are simply loading the 2019 UK election data results, the spatial data of parliamnetary constituencies, rural/urban classificaiton data, as well as demographic data. <br>
+In this chunk we are simply loading the 2019 UK election data results, the spatial data of parliamentary constituencies, rural/urban classification data, as well as demographic data. <br>
 
-```{r loading data, include=TRUE}
+```{r loading data, message = FALSE, warning=FALSE}
 # Load 2019 UK election data (predictor)
 election_2019_uk <- read_csv("../data/2019election_results.csv")
 
@@ -71,7 +70,7 @@ ethnicity <- read_csv("../data/ethnicity_data.csv")
 income <- read_csv("../data/income_data.csv")
 
 # Urban and rural data
-pop_rural_urban <- read_csv("../data/population_and_rural_urban_data.csv")
+pop_rural_urban <- read_csv("../data/Population_and_rural_urban.csv")
 
 # Pub data
 pubs <- read_csv("../data/open_pubs.csv")
@@ -113,7 +112,7 @@ hist(election_subset$perc_votes_labour,
 ```
 
 <br>
-From the two histograms, we can see that the votes for the conservatives are a little skewed towards higher percentages whereas the votes for labour are more skew towards lower percentages. However, both distributions have a large range of percentages and from this we can gather that there is a great variation in voting patterns across constituencies.<br>
+From the two histograms, we can see that the votes for the conservatives are a little skewed towards higher percentages whereas the votes for labour are more skew towards lower percentages. To correct this, a log transformation might be considered.  However, both distributions have a large range of percentages and from this we can gather that there is a great variation in voting patterns across constituencies.<br>
 So, now we have election data that is ready to be merged. <br>
 <br>
 
