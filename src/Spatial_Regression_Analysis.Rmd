@@ -10,7 +10,7 @@ This script is developed as part of the exam for the course Cultural Data Scienc
 
 The reason for this is that a model that captures the spatial features of the data will not show spatial clustering of the model residuals. However, the global model should have spatial clustering if spatial features are present in the data. <br>
 
-So, our hypothesis is that the spatial regression will fit better on our data (lower AIC score) compared to our global model. Furthermore, we hypothesize that the global model residuals will show spatial clustering whereas the spatial model residuals will show random dispersion. <br>
+So, our hypothesis is that the spatial regression will fit better on our data (lower AIC score) compared to our global model. Furthermore, we hypothesize that the global model residuals will show spatial clustering whereas the spatial model residuals will show a more random pattern. <br>
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -25,19 +25,15 @@ p_load(tidyverse,
        sf,
        tmap,
        rgdal,
-       raster,
-       GISTools,
        spgwr,
-       spatialreg,
-       spdep,
-       latticeExtra,
-       RColorBrewer)
+       spdep)
 ```
 
 <br>
 __Reading in and preparing the data:__ <br>
-We read in the data from the data folder and change the column names to more intuitive names as these have been abbreviated by the st_write function. <br>
-We also normalize the dependent variables that we will use in our regression to bring all values to the same range without distorting differences in the ranges of values.
+We read in the data from the data folder and change the column names to more intuitive names as these have been abbreviated by the st_write function (see Preprocessing.Rmd). <br>
+We also normalize the population density to ease interpretability of the model coefficients.
+For the same reason, we multiply pubs per inhabitant with 1000 to get pubs per thousand inhabitant. 
 <br>
 ```{r}
 # reading the data
@@ -69,9 +65,11 @@ normalize <- function(df_column) {
    new_values <- (df_column - mean(df_column)) / sd(df_column)
 }
 
-# normalize dependent variables
-constituency_data$perc_votes_conservative <- normalize(constituency_data$perc_votes_conservative)
-constituency_data$perc_votes_labour <- normalize(constituency_data$perc_votes_labour)
+# normalize population density for interpretability 
+constituency_data$pop_density <- normalize(constituency_data$pop_density)
+
+# making pubs per inhabitant to pubs per 1000 inhabitants for interpretability
+constituency_data$pubs_per_inhabitant <- constituency_data$pubs_per_inhabitant*1000
 
 ```
 <br>
@@ -135,7 +133,7 @@ From the map, there seem to be spatial clustering in the residuals. These effect
 
 Before performing the spatial autocorrelation, we have to define neighbors. <br>
 ```{r}
-# Define neighbor list (Queen's adjacency neighborhood definition)
+# Define neighbor list (Queen adjacency neighborhood definition)
 nb <- poly2nb(constituency_data)
 
 # Simplify the boundaries to speed up the processing
@@ -144,7 +142,7 @@ constituencies_sm <- st_cast(st_simplify(constituency_data, dTolerance = 250), t
 # Define center of constituencies
 constituency_centers <- st_coordinates(st_centroid(constituencies_sm$geometry))
 
-# Show the connections
+# plot geometry and show the connections
 plot(constituencies_sm$geometry); plot(nb, constituency_centers, col = "red", add = TRUE)
 
 # Add weights to each constituency according to distance to its neighbors. We use zero.policy = TRUE because there are islands that do not have any neighbors
@@ -165,7 +163,7 @@ moran.mc(constituencies_sm$global_conservative_lm, lw, 999, zero.policy = TRUE)
 From the Moran's I test, we deduce that there appears to be spatial clustering of the model residuals, I = 0.60, p = 0.001.
 <br>
 
-We do the same for the model on the labour party. First, we visualize how the model residuals vary across constituencies:
+We do the same for the model on the Labour Party. First, we visualize how the model residuals vary across constituencies:
 ```{r}
 # get model residuals for labour model
 resids <- residuals(global_labour_lm)
@@ -194,7 +192,7 @@ constituencies_sm$global_labour_lm <- residuals(global_labour_lm)
 moran.mc(constituencies_sm$global_labour_lm, lw, 999, zero.policy = TRUE)
 ```
 <br>
-For the model on labour votes, the autocorrelation test points to a spatial clustering of the model residuals.
+For the model on labour votes, the autocorrelation test points to a spatial clustering of the model residuals, Moran's I = 0.52, p<0.001.
 <br>
 
 Lastly, we plot the model residuals for both global models to use in the rapport. <br>
@@ -209,14 +207,18 @@ So, the fit of the model seem to vary across space indicating that a spatial reg
 <br>
 
 ## Spatial Regression Analysis: <br>
-In geographically weighted regression (GWR), we sort of compromise between a global model (a model across all points in space) and a local model (a model only containing one observation). This is done by modeling across a subset of the data through a bandwidth kernel and weighting the different observations according to how close they are in space to the focal observation. So, we make a regression for each location (constituency) and the model estimates then depend on the location of the observations. This allows us to discern the importance of our predictors at different constituencies in England in relation to how they affect voting patterns. <br>
-
-The bandwidth will be what bias the model in terms of defining the neighbors. Essentially, finding the bandwidth is like asking how many locations should we use to compute the varying slope as we more though the data space? We can choose either that the bandwidth is a given diameter around our focal point or it can be adaptive so that it takes the same number of observations for each focal points. The latter would mean that for denser areas, the bandwidth would be smaller. As our areas vary a lot in density, we choose the latter. <br>
-
-Furthermore, we use a Gaussian kernel function which allows all locations to contribute to the model at focal point. However, nearer locations are weighted higher than distant locations.
+Geographically weighted regression (GWR) is a spatial analysis technique in which the local relationship between non-static variables and a dependent variable is modelled by taking geographical location into account. This means that the model estimates depend on the location of the observations, which allows for discerning the importance of the predictors at different parliamentary constituencies in relation to how these affect voting patterns.<br>
 <br>
+When performing a GWR analysis, the specified bandwidth determines how neighboring constituencies are defined. Essentially, finding the bandwidth is like asking how many locations we should use to compute the varying slope as we move through the data space. We can choose either that the bandwidth is a given diameter around our focal point or it can be adaptive so that it takes the same number of observations for each focal point. The latter would mean that for denser areas, the bandwidth would be smaller. For this project, we chose to use an adapted bandwidth and to estimate the optimal bandwidth we used the function gwr.sel from the spgwr package. This performs cross validation and tries to minimize the root mean squared error (RMSE).To see how this defines our neighborhoods and how the distance varies, we plot the bandwidth distance for each constituency. 
+<br>
+Furthermore, we use a Gaussian kernel function which allows all locations to contribute to the model at focal point. However, nearer locations are weighted higher than distant locations.
 
-As we are using an sf object, we also have to define a set of coordinates for each constituency so we first define the centroids for each constituency. Then, we find the optimal bandwidth for our model on conservative votes. Lastly, we use this to fit the model to the observations. 
+As we are using an sf object, we also have to define a set of coordinates for each constituency so we first define the centroids for each constituency. Then, we find the optimal bandwidth for our model on conservative votes. Lastly, we use this to fit the model to the observations using the gwr function from the spgwr package. <br>
+<br>
+To test the validity of the spatial model, we examine the model residuals. Here, we perform an autocorrelation test to compare the results with the global regression using Moran’s I with Monte Carlo simulation. <br>
+<br>
+Lastly, we plot and examine the model coefficients and how they vary across English constituencies. From this, we cautiously draw inferences about how the relationship between voting patterns and demographic variables vary across space. <br>
+<br>
 
 __GWR for Conservative Votes:__ <br>
 First, we perform our spatial analysis on the model on Conservative votes.
@@ -224,12 +226,13 @@ First, we perform our spatial analysis on the model on Conservative votes.
 ```{r}
 # Define centroids of constituencies
 constituency_centroids <- st_coordinates(st_centroid(constituency_data$geometry))
+# check the crs
 st_crs(constituency_data)
 
-# calculate Optimal kernel bandwidth using the constituency coordinates defined when specifying neighborhoods, and adapting the kernel size according to density of areas
+# calculate optimal kernel bandwidth using the constituency coordinates defined when specifying neighborhoods, and adapting the kernel size according to density of areas
 bw_conservative <- gwr.sel(perc_votes_conservative ~ pop_density + pubs_per_inhabitant + perc_white_pop + avg_age + avg_income, data = constituency_data, coords = constituency_centroids, adapt = T)
 
-# fitting the model for conservative votes
+# fitting the model for conservative votes using Gaussian weight
 gwr_model_conservative = gwr(perc_votes_conservative ~ pop_density + pubs_per_inhabitant 
                              + perc_white_pop + avg_age + avg_income, 
                              data = constituency_data, 
@@ -253,21 +256,23 @@ gwr_conservative_merged <- cbind(constituency_data, as.matrix(results_conservati
 # save adaptive bandwidth to results data 
 gwr_conservative_merged$bwadapt <- gwr_model_conservative$bandwidth  
 ```
-Here, we see that we get an optimal bandwidth of 7 neighbors. Using this for our model, we improve the adjusted R2 from 57% for the global regression model to 91% for the GWR model. Similarly, the AICc value decreases from 1067.75 for the global regression model to 404.35 for the GWR model.
-
-Then, we plot the bandwidths for each constituency to see how it varies across England. For all plots it should be noted that we are using quantiles as color boundaries as this most distinctively shows the difference in coefficients. 
+Here, we see that we get an optimal bandwidth of 7 neighbors. Using this for our model, we improve the adjusted R2 from 57% for the global regression model to 91% for the GWR model. Similarly, the AIC value decreases from 1067.75 for the global regression model to 404.35 for the GWR model. <br>
+<br>
+Then, we plot the bandwidths for each constituency to see how it varies across England. **For all plots it should be noted that we are using quantiles as color boundaries as this most distinctively shows the difference in coefficients.**
 ```{r}
 # plotting bandwidth distance for each constituency
 bwadapt_conservative <- tm_shape(gwr_conservative_merged, 
-                                 unit = "km") +
+                                 unit = "km") + # using km for the map scale
   tm_polygons(col = "bwadapt", 
               style = "quantile",
               palette = "Blues", 
               border.alpha = 0, 
               title = "Distance (meters)") +
+  # adding a map scale bar
   tm_scale_bar(breaks = c(0, 50, 100, 150, 200), 
                size = 1, 
                position = c("right", "bottom")) +
+  # adding compass
   tm_compass(type = "4star", 
              position = c("left", "top")) + 
   tm_layout(main.title = "GWR bandwidth for Conservative model",  
@@ -286,8 +291,12 @@ map1 <- tm_shape(gwr_conservative_merged) +
   tm_fill("perc_white_pop.1",
           n = 5,
           style = "quantile",
-          title = "Coefficient for percent white population")  +
+          title = "Percent white population")  +
   tm_layout(frame = FALSE,
+            legend.text.size = 0.8,
+            legend.title.size = 1,
+            legend.outside = TRUE,
+            legend.outside.size = 0.5,
             main.title = "A)")
 
 # map of coefficients for pubs per inhabitant
@@ -295,8 +304,12 @@ map2 <- tm_shape(gwr_conservative_merged) +
   tm_fill("pubs_per_inhabitant.1",
           n = 5,
           style = "quantile",
-          title = "Coefficient for pubs per inhabitant")  +
+          title = "Pubs/1000 inhabitant")  +
   tm_layout(frame = FALSE,
+            legend.text.size = 0.8,
+            legend.title.size = 1,
+            legend.outside = TRUE,
+            legend.outside.size = 0.5,
             main.title = "B)")
 
 # map of coefficients for population density
@@ -304,8 +317,12 @@ map3 <- tm_shape(gwr_conservative_merged) +
   tm_fill("pop_density.1",
           n = 5,
           style = "quantile",
-          title = "Coefficient for population density")  +
+          title = "Population density")  +
   tm_layout(frame = FALSE,
+            legend.text.size = 0.8,
+            legend.title.size = 1,
+            legend.outside = TRUE,
+            legend.outside.size = 0.5,
             main.title = "C)")
 
 # map of coefficients for average age
@@ -313,8 +330,12 @@ map4 <- tm_shape(gwr_conservative_merged) +
   tm_fill("avg_age.1",
           n = 5,
           style = "quantile",
-          title = "Coefficient for average age")  +
+          title = "Average age")  +
   tm_layout(frame = FALSE,
+            legend.text.size = 0.8,
+            legend.title.size = 1,
+            legend.outside = TRUE,
+            legend.outside.size = 0.5,
             main.title = "D)")
 
 # map of coefficients for average income
@@ -322,8 +343,12 @@ map5 <- tm_shape(gwr_conservative_merged) +
   tm_fill("avg_income.1",
           n = 5,
           style = "quantile",
-          title = "Coefficient for average income")  +
+          title = "Average income")  +
   tm_layout(frame = FALSE,
+            legend.text.size = 0.8,
+            legend.title.size = 1,
+            legend.outside = TRUE,
+            legend.outside.size = 0.5,
             main.title = "E)")
 
 # print all maps together
@@ -333,7 +358,7 @@ tmap_arrange(map1,map2,map3, map4, map5, nrow=2)
 ```
 
 <br>
-To compare with the global regression, we also plot the model residuals and perform a moran's I test. <br>
+To compare with the global regression, we also plot the GWR model residuals and perform a moran's I test. <br>
 
 ```{r}
 # plotting model residuals
@@ -353,19 +378,26 @@ moran.mc(gwr_conservative_merged$gwr.e, lw, 999, zero.policy = TRUE)
 ```
 
 
-Here, we see that the spatial clustering is still significant but also remarkably less than for the global model. Moran's I for the GWR for Conservative votes is 0.13 compared to 0.60 for the global model. However, we should remain cautious when drawing inferences on the basis of the autocorrelation test for the GWR as this is using a different optimization approach.
+Here, we see that the spatial clustering is still significant but also remarkably less than for the global model. Moran's I for the GWR for Conservative votes is 0.13 compared to 0.60 for the global model.
 <br>
 
 
 __GWR for Labour Votes:__ <br>
-Then, we define a similar GWR for our model on labour votes
+Then, we define a similar GWR for our model on votes for the Labour Party.
 <br>
 ```{r}
-# calculate Optimal kernel bandwidth using the constituency coordinates defined when specifying neighborhoods, and adapting the kernel size according to density of areas
+# calculate optimal kernel bandwidth using the constituency coordinates defined when specifying neighborhoods, and adapting the kernel size according to density of areas
 bw <- gwr.sel(perc_votes_labour ~ pop_density + pubs_per_inhabitant + perc_white_pop + avg_age + avg_income, data = constituency_data, coords = constituency_centroids, adapt = T)
 
-# fitting the model for conservative votes
-gwr_model_labour = gwr(perc_votes_labour ~ pop_density + pubs_per_inhabitant + perc_white_pop + avg_age + avg_income, data = constituency_data, coords = constituency_centroids, adapt=bw, hatmatrix=TRUE, se.fit=TRUE, gweight=gwr.Gauss) 
+# fitting the model for conservative votes using Gaussian weight
+gwr_model_labour = gwr(perc_votes_labour ~ pop_density + pubs_per_inhabitant 
+                       + perc_white_pop + avg_age + avg_income, 
+                       data = constituency_data, 
+                       coords = constituency_centroids, 
+                       adapt=bw, 
+                       hatmatrix=TRUE, 
+                       se.fit=TRUE, 
+                       gweight=gwr.Gauss) 
 
 # check model summary
 gwr_model_labour
@@ -405,7 +437,7 @@ bwadapt_labour <- tm_shape(gwr_labour_merged, unit = "km") +
             legend.outside = TRUE)
 ```
 <br>
-Plot bandwidth distances for each constituencies for each model. <br>
+We plot the bandwidth distances for each constituencies for each model. <br>
 ```{r}
 # plotting bandwith for both models
 tmap_arrange(bwadapt_conservative, bwadapt_labour, nrow = 1)
@@ -430,7 +462,7 @@ map7 <- tm_shape(gwr_labour_merged) +
   tm_fill("pubs_per_inhabitant.1",
           n = 5,
           style = "quantile",
-          title = "Coefficient for pubs per inhabitant")  +
+          title = "Pubs/1000 inhabitant")  +
   tm_layout(frame = FALSE,
             legend.text.size = 0.8,
             legend.title.size = 1,
@@ -502,6 +534,43 @@ moran.mc(gwr_labour_merged$gwr.e, lw, 999, zero.policy = TRUE)
 ```
 As with the Conservative model, we observe that the spatial clustering is still significant but reduced compared to the global model. Moran's I for the GWR for Labour votes is 0.10 compared to 0.52 for the global model. <br>
 <br>
+
+For our rapport, we want to focus on the spatial variation of the coefficient of pubs per 1000 inhabitants. Therefore, we plot the coefficients for this variable for both models. <br>
+<br>
+```{r}
+# mapping pub coefficient for conservative model
+pubs_conservative <- tm_shape(gwr_conservative_merged) + 
+  tm_fill("pubs_per_inhabitant.1",
+          n = 5,
+          style = "quantile",
+          title = "Pubs/1000 inhabitant")  +
+  tm_layout(frame = FALSE,
+            legend.text.size = 0.8,
+            legend.title.size = 1,
+            legend.outside = TRUE,
+            legend.outside.size = 0.5,
+            main.title = "Effect of pubs on Conservative vote share",
+            main.title.size = 0.8)
+
+# mapping pub coefficient for labour model
+pubs_labour <- tm_shape(gwr_labour_merged) + 
+  tm_fill("pubs_per_inhabitant.1",
+          n = 5,
+          style = "quantile",
+          title = "Pubs/1000 inhabitant")  +
+  tm_layout(frame = FALSE,
+            legend.text.size = 0.8,
+            legend.title.size = 1,
+            legend.outside = TRUE,
+            legend.outside.size = 0.5,
+            main.title = "Effect of pubs on Labour vote share",
+            main.title.size = 0.8)
+
+# plotting the two maps together
+tmap_arrange(pubs_conservative, pubs_labour, nrow = 1, asp = NA)
+```
+
+
 Based on our spatial regression analysis, we can conclude that the relationship between voting patterns and demographics is sensitive to where you live in England. <br>
 So, space mattered to the results of the UK general election in 2019. <br>
 
